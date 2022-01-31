@@ -51,13 +51,21 @@ signals:
 public slots:
     void on_rconpass_update(const QString& retRconPass);
     void on_apikey_update(const QString& retApiKey);
+    void on_logfile_update(const QString& retLogfile);
 
 private:
     steamUser getUserData(std::string steamid64, std::string name);
+    bool processStatusOutput(const std::string status);
+    void updateTime();
 
     QStandardItemModel* tableElements;
     QString rconpass;
     QString apiKey = "";
+    QString logfile = "";
+    QString lastConn = "None";
+    std::streampos lastPosition = 0;
+    std::ifstream logfile_str;
+    std::string logfile_buffer;
     httplib::Client httpCli = httplib::Client("https://api.steampowered.com");
     QString lastUpdate;
     QMap<std::string, steamUser> steamUsersCache;
@@ -76,6 +84,8 @@ private slots:
     void on_lineEdit_textChanged(const QString &arg1);
     void on_lineEdit_2_textChanged(const QString &arg1);
 
+    void on_pushButton_clicked();
+
 public slots:
     void on_status_update(const QString& status, const QString& lastUpdate, const QString& connectedTo);
     void on_table_update();
@@ -87,6 +97,7 @@ private:
     QSettings settings;
     QString rconpass = "";
     QString apiKey = "";
+    QString logfile = "";
     QStandardItemModel tableModel;
 
     UpdaterThreadWorker utw;

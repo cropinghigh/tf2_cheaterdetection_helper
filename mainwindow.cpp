@@ -104,99 +104,158 @@ error:
     return ret;
 }
 
+inline bool space(char c){
+    return c == '\n';
+}
+
+inline bool notspace(char c){
+    return c != '\n';
+}
+
+//break a sentence into words(by \n)
+std::vector<std::string> split(const std::string& s){
+    typedef std::string::const_iterator iter;
+    std::vector<std::string> ret;
+    iter i = s.begin();
+    while(i!=s.end()){
+        i = std::find_if(i, s.end(), notspace); // find the beginning of a word
+        iter j= std::find_if(i, s.end(), space); // find the end of the same word
+        if(i!=s.end()){
+            ret.push_back(std::string(i, j)); //insert the word into vector
+            i = j; // repeat 1,2,3 on the rest of the line.
+        }
+    }
+    return ret;
+}
+
+bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
+    std::smatch matchA;
+    std::smatch matchB;
+    std::smatch matchC;
+    std::regex users_rgx(
+    "# userid name                uniqueid            connected ping loss state(?:  adr|)((?:\n#.*)+)"
+                );
+    std::regex addr_rgx(
+    "udp\\/ip  : (.*)"
+                );
+
+    bool ret = false;
+    if(std::regex_search(status.begin(), status.end(), matchA, addr_rgx) && std::regex_search(status.begin(), status.end(), matchB, users_rgx)) {
+        std::string addr = matchA[1];
+        lastConn = QString::fromStdString(addr);
+        std::string users = std::string(matchB[1]);
+        users = users.substr(1, users.size()) + "\n";
+        std::regex user_rgx("# +(.*?) +\"(.*?)\" +(.*?) +((?:\\:|\\d)+).*");
+
+        if(users.size() > 0) {
+            QList<QStandardItem *> tableElementsTemp;
+            std::vector<std::string> users_s = split(users);
+            for(int i = 0; i < users_s.size(); i++) {
+                const std::string line = users_s[i];
+                if (std::regex_search(line.begin(), line.end(), matchC, user_rgx)) {
+                    std::string username = matchC[2];
+                    std::string steamid64 = steamidto64(matchC[3]);
+                    if(steamid64 != "err") {
+                        std::string playtime = matchC[4];
+                        steamUser user;
+                        if(steamUsersCache.contains(steamid64) && ((steamUsersCache[steamid64].timestamp - time(NULL)) < 1800000L)) {
+                            user = steamUsersCache[steamid64];
+                        } else {
+                            user = getUserData(steamid64, username);
+                            steamUsersCache.remove(steamid64);
+                            steamUsersCache.insert(steamid64, user);
+                        }
+                        tm creation_tm = *localtime(&user.created);
+                        QStandardItem* userbase = new QStandardItem(
+                                    QString::fromStdString(user.tfname) + " | " +
+                                    QString::fromStdString(playtime) + " | Steam r.y: " +
+                                    QString::number(creation_tm.tm_year + 1900) + " | " +
+                                    QString::fromStdString(user.country) + " | h.p:" +
+                                    QString::number(user.playhours) + " | s.l:" +
+                                    QString::number(user.steamLevel));
+                        bool suspicious = false;
+                        if(user.name != user.tfname) {
+                            suspicious = true;
+                            userbase->appendRow(new QStandardItem("Nick mismatch: steam " + QString::fromStdString(user.name) + ", tf " + QString::fromStdString(user.tfname)));
+                        }
+                        if(user.configured != 1) {
+                            suspicious = true;
+                            userbase->appendRow(new QStandardItem("Profile is not configured"));
+                        }
+                        if(user.visibility != 5 && user.visibility != 4 && user.visibility != 3) {
+                            suspicious = true;
+                            userbase->appendRow(new QStandardItem("Profile is not public(" +
+                                                                 ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")"));
+                        }
+                        tableElementsTemp.append(userbase);
+                    } else {
+                        printf("ERROR: invalid steamid %s", steamid64.c_str());
+                    }
+                }
+            }
+            updateTime();
+            tableElements->clear();
+            foreach(auto row, tableElementsTemp) {
+                tableElements->appendRow(row);
+            }
+            emit updateTable();
+        }
+        emit updateStatus("RCON connected", lastUpdate, lastConn);
+        ret = true;
+    } else {
+        //tableElements->clear();
+        emit updateStatus("RCON connected", lastUpdate, lastConn);
+        emit updateTable();
+        ret = false;
+    }
+    return ret;
+}
+
 void UpdaterThreadWorker::run() {
     while(!this->isInterruptionRequested()) {
         main_mtx.try_lock();
         srcon rconcli("127.0.0.1", 27015, rconpass.toStdString(), 1);
         if(rconcli.get_connected()) {
             const std::string status_data = rconcli.send("status");
-            if(status_data != "Sending failed!") {
-                time_t     now = time(0);
-                struct tm  tstruct = *localtime(&now);
-                char buffer[80];
-                strftime(buffer,sizeof(buffer),"%H:%M:%S", &tstruct);
-                lastUpdate = QString(buffer);
-                if(status_data == "") {
-                    tableElements->clear();
-                    emit updateStatus("RCON connected", lastUpdate, "None");
-                    emit updateTable();
-                } else {
-                    std::smatch match;
-                    std::regex main_rgx(
-                    "hostname: (.*)\nversion : (.*)\nudp\\/ip  : (.*)\naccount : (.*)\nmap     : (.*)\ntags    : (.*)\nplayers : (.*)\nedicts  : (.*)\n# userid name                uniqueid            connected ping loss state  adr\n((?:.|\n)*)"
-                                );
-                    if(std::regex_search(status_data.begin(), status_data.end(), match, main_rgx)) {
-                        //std::string addr = status_data.substr(status_data.find("udp/ip  : "), status_data.find("account :"));
-                        //std::string users = status_data.substr(status_data.find("# userid name                uniqueid            connected ping loss state  adr"), status_data.size());
-                        std::string addr = match[3];
-                        std::string users = match[9];
-                        std::regex user_rgx("# *(.) *\"(.*)\" *(.*?) *(\\d\\d:\\d\\d) *\\d+ *\\d+.*");
-
-                        int last_match = 0;
-                        if(users.size() > 0) {
-                            QList<QStandardItem *> tableElementsTemp;
-                            for(int i = 0; i < std::count(users.begin(), users.end(), '\n') + 1; i++) {
-                                const std::string line = users.substr(last_match, users.find('\n', last_match));
-                                if (std::regex_search(line.begin(), line.end(), match, user_rgx)) {
-                                    std::string username = match[2];
-                                    std::string steamid64 = steamidto64(match[3]);
-                                    if(steamid64 != "err") {
-                                        std::string playtime = match[4];
-                                        steamUser user;
-                                        if(steamUsersCache.contains(steamid64) && ((steamUsersCache[steamid64].timestamp - time(NULL)) < 1800000L)) {
-                                            user = steamUsersCache[steamid64];
-                                        } else {
-                                            user = getUserData(steamid64, username);
-                                            steamUsersCache.remove(steamid64);
-                                            steamUsersCache.insert(steamid64, user);
-                                        }
-                                        tm creation_tm = *localtime(&user.created);
-                                        QStandardItem* userbase = new QStandardItem(
-                                                    QString::fromStdString(user.tfname) + " | " +
-                                                    QString::fromStdString(playtime) + " | Steam r.y: " +
-                                                    QString::number(creation_tm.tm_year + 1900) + " | " +
-                                                    QString::fromStdString(user.country) + " | h.p:" +
-                                                    QString::number(user.playhours) + " | s.l:" +
-                                                    QString::number(user.steamLevel));
-                                        bool suspicious = false;
-                                        if(user.name != user.tfname) {
-                                            suspicious = true;
-                                            userbase->appendRow(new QStandardItem("Nick mismatch: steam " + QString::fromStdString(user.name) + ", tf " + QString::fromStdString(user.tfname)));
-                                        }
-                                        if(user.configured != 1) {
-                                            suspicious = true;
-                                            userbase->appendRow(new QStandardItem("Profile is not configured"));
-                                        }
-                                        if(user.visibility != 5 && user.visibility != 4 && user.visibility != 3) {
-                                            suspicious = true;
-                                            userbase->appendRow(new QStandardItem("Profile is not public(" +
-                                                                                 ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")"));
-                                        }
-                                        tableElementsTemp.append(userbase);
-                                    } else {
-                                        printf("ERROR: invalid steamid %s", steamid64.c_str());
-                                    }
-                                }
-                            }
-                            tableElements->clear();
-                            foreach(auto row, tableElementsTemp) {
-                                tableElements->appendRow(row);
-                            }
-                        }
-                        emit updateStatus("RCON connected", lastUpdate, QString::fromStdString(addr));
+            if(status_data == "Sending failed!") {
+                emit updateStatus("RCON disconnected", lastUpdate, lastConn);
+            } else if(status_data == "") {
+                logfile_str.seekg( 0, std::ios::end );
+                int curr_fsize = logfile_str.tellg();
+                if(curr_fsize < lastPosition) {
+                    lastPosition = curr_fsize;
+                    logfile_buffer = "";
+                } else if(curr_fsize > lastPosition) {
+                    logfile_str.clear();
+                    logfile_str.seekg(lastPosition);
+                    int new_size = curr_fsize - lastPosition;
+                    char buffer[new_size];
+                    logfile_str.read(buffer, new_size);
+                    logfile_buffer += buffer;
+                    if(processStatusOutput(logfile_buffer)) {
+                        logfile_buffer = "";
                     }
-
-                    emit updateTable();
+                    lastPosition = curr_fsize;
+                } else {
+                    emit updateStatus("RCON connected", lastUpdate, lastConn);
                 }
-                main_mtx.unlock();
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                continue;
+            } else {
+                processStatusOutput(status_data);
             }
+        } else {
+            emit updateStatus("RCON disconnected", lastUpdate, lastConn);
         }
-        emit updateStatus("RCON disconnected", lastUpdate, "None");
         main_mtx.unlock();
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
+}
+
+void UpdaterThreadWorker::updateTime() {
+    time_t     now = time(0);
+    struct tm  tstruct = *localtime(&now);
+    char buffer[80];
+    strftime(buffer,sizeof(buffer),"%H:%M:%S", &tstruct);
+    lastUpdate = QString(buffer);
 }
 
 void UpdaterThreadWorker::on_rconpass_update(const QString &retRconPass) {
@@ -208,6 +267,20 @@ void UpdaterThreadWorker::on_rconpass_update(const QString &retRconPass) {
 void UpdaterThreadWorker::on_apikey_update(const QString& retApiKey) {
     main_mtx.try_lock();
     apiKey = retApiKey;
+    main_mtx.unlock();
+}
+
+void UpdaterThreadWorker::on_logfile_update(const QString& retLogfile) {
+    main_mtx.try_lock();
+    logfile = retLogfile;
+    logfile_str.close();
+    logfile_str = std::ifstream(logfile.toStdString());
+    if(!logfile_str.is_open()) {
+        printf("ERROR: file %s can't be open", logfile.toStdString().c_str());
+    }
+    logfile_str.seekg( 0, std::ios::end );
+    lastPosition = logfile_str.tellg();
+    logfile_buffer = "";
     main_mtx.unlock();
 }
 
@@ -223,8 +296,10 @@ MainWindow::MainWindow(QWidget *parent)
     ui->centralwidget->setWindowTitle("TF2 cheater detection helper");
     rconpass = settings.value("rconpass", "").toString();
     apiKey = settings.value("apikey", "").toString();
+    logfile = settings.value("logfile", "/").toString();
     ui->lineEdit->setText(rconpass);
     ui->lineEdit_2->setText(apiKey);
+    ui->label_7->setText(logfile);
     tableModel.clear();
     ui->treeView->setModel(&tableModel);
     updateTable();
@@ -232,6 +307,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&utw, &UpdaterThreadWorker::updateStatus, this, &MainWindow::on_status_update);
     utw.on_rconpass_update(rconpass);
     utw.on_apikey_update(apiKey);
+    utw.on_logfile_update(logfile);
     utw.start();
 }
 
@@ -274,5 +350,13 @@ void MainWindow::on_lineEdit_2_textChanged(const QString &arg1)
     utw.on_apikey_update(apiKey);
     settings.setValue("apikey", apiKey);
     settings.sync();
+}
+
+
+void MainWindow::on_pushButton_clicked()
+{
+    logfile = QFileDialog::getOpenFileName(this, tr("Open console.log file"),logfile, tr("Console log (console.log)"));
+    ui->label_7->setText(logfile);
+    utw.on_logfile_update(logfile);
 }
 
