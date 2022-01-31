@@ -146,9 +146,11 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
     if(std::regex_search(status.begin(), status.end(), matchA, addr_rgx) && std::regex_search(status.begin(), status.end(), matchB, users_rgx)) {
         std::string addr = matchA[1];
         lastConn = QString::fromStdString(addr);
-        std::string users = std::string(matchB[1]);
-        users = users.substr(1, users.size()) + "\n";
+        //std::string users = std::string(matchB[1]);
+        std::string users = status;
+        //users = users.substr(1, users.size()) + "\n";
         std::regex user_rgx("# +(.*?) +\"(.*?)\" +(.*?) +((?:\\:|\\d)+).*");
+        std::list<std::string> parsed_users;
 
         if(users.size() > 0) {
             QList<QList<QStandardItem*>> tableElementsTemp;
@@ -158,6 +160,10 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                 if (std::regex_search(line.begin(), line.end(), matchC, user_rgx)) {
                     std::string username = matchC[2];
                     std::string steamid64 = steamidto64(matchC[3]);
+                    if((std::find(parsed_users.begin(), parsed_users.end(), username) != parsed_users.end())) {
+                        continue;
+                    }
+                    parsed_users.push_back(username);
                     if(steamid64 != "err") {
                         std::string playtime = matchC[4];
                         steamUser user;
@@ -172,27 +178,36 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                         QList<QStandardItem*> row {
                             new QStandardItem(QString::fromStdString(user.tfname)),
                             new QStandardItem(QString::fromStdString(playtime)),
-                            new QStandardItem(QString::number(creation_tm.tm_year + 1900)),
+                            new QStandardItem(QString::number((creation_tm.tm_year + 1900)) == "1970" ? "-" : QString::number((creation_tm.tm_year + 1900))),
                             new QStandardItem(QString::fromStdString(user.country)),
-                            new QStandardItem(QString::number(user.playhours)),
-                            new QStandardItem(QString::number(user.steamLevel))};
+                            new QStandardItem(QString::number(user.playhours) == "-1" ? "-" : QString::number(user.playhours)),
+                            new QStandardItem(QString::number(user.steamLevel) == "-1" ? "-" : QString::number(user.steamLevel))};
                         bool suspicious = false;
                         if(user.name != user.tfname) {
                             suspicious = true;
-                            row[0]->appendRow(new QStandardItem("Nick mismatch:"));
-                            row[1]->appendRow(new QStandardItem("steam \"" + QString::fromStdString(user.name) + "\","));
-                            row[2]->appendRow(new QStandardItem("tf \"" + QString::fromStdString(user.tfname) + "\""));
+                            QList<QStandardItem*> subrow {
+                                new QStandardItem("Nick mismatch:"),
+                                new QStandardItem("steam \"" + QString::fromStdString(user.name) + "\","),
+                                new QStandardItem("tf \"" + QString::fromStdString(user.tfname) + "\"")
+                            };
+                            row[0]->appendRows(subrow);
                         }
                         if(user.configured != 1) {
                             suspicious = true;
-                            row[0]->appendRow(new QStandardItem("Profile is"));
-                            row[1]->appendRow(new QStandardItem("not configured"));
+                            QList<QStandardItem*> subrow {
+                                new QStandardItem("Profile is"),
+                                new QStandardItem("not configured")
+                            };
+                            row[0]->appendRows(subrow);
                         }
                         if(user.visibility != 5 && user.visibility != 4 && user.visibility != 3) {
                             suspicious = true;
-                            row[0]->appendRow(new QStandardItem("Profile is"));
-                            row[1]->appendRow(new QStandardItem("not public(" +
-                                                                 ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")"));
+                            QList<QStandardItem*> subrow {
+                                new QStandardItem("Profile is"),
+                                new QStandardItem("not public(" +
+                                ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")")
+                            };
+                            row[0]->appendRows(subrow);
                         }
                         tableElementsTemp.append(row);
                     } else {
@@ -254,7 +269,7 @@ void UpdaterThreadWorker::run() {
             emit updateStatus("RCON disconnected", lastUpdate, lastConn);
         }
         main_mtx.unlock();
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(3000));
     }
 }
 

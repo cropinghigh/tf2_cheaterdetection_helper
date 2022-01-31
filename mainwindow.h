@@ -10,6 +10,7 @@
 #include <time.h>
 #include <chrono>
 #include <regex>
+#include <algorithm>
 
 #include "srcon.h"
 
