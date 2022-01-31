@@ -36,6 +36,7 @@ public:
     std::string country;
     int playhours;
     int steamLevel;
+    int vacs;
 };
 
 class UpdaterThreadWorker : public QThread {

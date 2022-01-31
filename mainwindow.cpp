@@ -4,7 +4,7 @@
 
 UpdaterThreadWorker::UpdaterThreadWorker(QStandardItemModel* retTableElements) {
     tableElements = retTableElements;
-    QStringList headerLabels {"Nick                      ", "Time playing", "Steam reg.year", "Country", "Total play hours", "Steam lvl"};
+    QStringList headerLabels {"Nick                      ", "Time playing", "Steam reg.year", "Country", "Total play hours", "Steam lvl", "VACs"};
     tableElements->clear();
     tableElements->setHorizontalHeaderLabels(headerLabels);
 }
@@ -69,8 +69,9 @@ steamUser UpdaterThreadWorker::getUserData(std::string steamid64, std::string na
         }
         ret.playhours = -1;
         ret.steamLevel = -1;
+        ret.vacs = 0;
 
-        res = httpCli.Get(("/IPlayerService/GetOwnedGames/v1/?key=" + apiKey + "&include_played_free_games=true&steamid=" + QString::fromStdString(steamid64)).toStdString().c_str());
+        res = httpCli.Get(("/IPlayerService/GetOwnedGames/v1/?key=" + apiKey + "&include_played_free_games=tru&appids_filter[0]=440&steamid=" + QString::fromStdString(steamid64)).toStdString().c_str());
         if(res->status != 200) {
             goto fin;
         }
@@ -89,6 +90,14 @@ steamUser UpdaterThreadWorker::getUserData(std::string steamid64, std::string na
         responseJson = json::parse(res->body)["response"];
         if(responseJson.contains("player_level")) {
             ret.steamLevel = responseJson["player_level"];
+        }
+        res = httpCli.Get(("/ISteamUser/GetPlayerBans/v1/?key=" + apiKey + "&steamids=" + QString::fromStdString(steamid64)).toStdString().c_str());
+        if(res->status != 200) {
+            goto fin;
+        }
+        responseJson = json::parse(res->body);
+        if(!responseJson["players"].empty()) {
+            ret.vacs = responseJson["players"][0]["NumberOfVACBans"];
         }
 fin:
         return ret;
@@ -181,8 +190,12 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                             new QStandardItem(QString::number((creation_tm.tm_year + 1900)) == "1970" ? "-" : QString::number((creation_tm.tm_year + 1900))),
                             new QStandardItem(QString::fromStdString(user.country)),
                             new QStandardItem(QString::number(user.playhours) == "-1" ? "-" : QString::number(user.playhours)),
-                            new QStandardItem(QString::number(user.steamLevel) == "-1" ? "-" : QString::number(user.steamLevel))};
+                            new QStandardItem(QString::number(user.steamLevel) == "-1" ? "-" : QString::number(user.steamLevel)),
+                            new QStandardItem(QString::number(user.vacs))};
                         bool suspicious = false;
+                        if(user.vacs > 0) {
+                            suspicious = true;
+                        }
                         if(user.name != user.tfname) {
                             suspicious = true;
                             QList<QStandardItem*> subrow {
@@ -205,9 +218,9 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                                 new QStandardItem("not"),
                                 new QStandardItem("configured")
                             };
-                            row[0]->setChild(0, 0, subrow[0]);
-                            row[0]->setChild(0, 1, subrow[1]);
-                            row[0]->setChild(0, 2, subrow[2]);
+                            row[0]->setChild(1, 0, subrow[0]);
+                            row[0]->setChild(1, 1, subrow[1]);
+                            row[0]->setChild(1, 2, subrow[2]);
                         }
                         if(user.visibility != 5 && user.visibility != 4 && user.visibility != 3) {
                             suspicious = true;
@@ -217,9 +230,9 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                                 new QStandardItem("public(" +
                                 ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")")
                             };
-                            row[0]->setChild(0, 0, subrow[0]);
-                            row[0]->setChild(0, 1, subrow[1]);
-                            row[0]->setChild(0, 2, subrow[2]);
+                            row[0]->setChild(1, 0, subrow[0]);
+                            row[0]->setChild(1, 1, subrow[1]);
+                            row[0]->setChild(1, 2, subrow[2]);
                         }
                         tableElementsTemp.append(row);
                     } else {
