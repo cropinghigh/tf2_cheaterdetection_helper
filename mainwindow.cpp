@@ -187,27 +187,39 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                             suspicious = true;
                             QList<QStandardItem*> subrow {
                                 new QStandardItem("Nick mismatch:"),
-                                new QStandardItem("steam \"" + QString::fromStdString(user.name) + "\","),
-                                new QStandardItem("tf \"" + QString::fromStdString(user.tfname) + "\"")
+                                new QStandardItem("steam "),
+                                new QStandardItem("\"" + QString::fromStdString(user.name) + "\","),
+                                new QStandardItem("tf"),
+                                new QStandardItem("\"" + QString::fromStdString(user.tfname) + "\"")
                             };
-                            row[0]->appendRows(subrow);
+                            row[0]->setChild(0, 0, subrow[0]);
+                            row[0]->setChild(0, 1, subrow[1]);
+                            row[0]->setChild(0, 2, subrow[2]);
+                            row[0]->setChild(0, 3, subrow[3]);
+                            row[0]->setChild(0, 4, subrow[4]);
                         }
                         if(user.configured != 1) {
                             suspicious = true;
                             QList<QStandardItem*> subrow {
                                 new QStandardItem("Profile is"),
-                                new QStandardItem("not configured")
+                                new QStandardItem("not"),
+                                new QStandardItem("configured")
                             };
-                            row[0]->appendRows(subrow);
+                            row[0]->setChild(0, 0, subrow[0]);
+                            row[0]->setChild(0, 1, subrow[1]);
+                            row[0]->setChild(0, 2, subrow[2]);
                         }
                         if(user.visibility != 5 && user.visibility != 4 && user.visibility != 3) {
                             suspicious = true;
                             QList<QStandardItem*> subrow {
                                 new QStandardItem("Profile is"),
-                                new QStandardItem("not public(" +
+                                new QStandardItem("not"),
+                                new QStandardItem("public(" +
                                 ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")")
                             };
-                            row[0]->appendRows(subrow);
+                            row[0]->setChild(0, 0, subrow[0]);
+                            row[0]->setChild(0, 1, subrow[1]);
+                            row[0]->setChild(0, 2, subrow[2]);
                         }
                         tableElementsTemp.append(row);
                     } else {
