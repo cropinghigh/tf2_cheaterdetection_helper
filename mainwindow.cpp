@@ -4,6 +4,9 @@
 
 UpdaterThreadWorker::UpdaterThreadWorker(QStandardItemModel* retTableElements) {
     tableElements = retTableElements;
+    QStringList headerLabels {"Nick                      ", "Time playing", "Steam reg.year", "Country", "Total play hours", "Steam lvl"};
+    tableElements->clear();
+    tableElements->setHorizontalHeaderLabels(headerLabels);
 }
 
 UpdaterThreadWorker::~UpdaterThreadWorker() {
@@ -148,7 +151,7 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
         std::regex user_rgx("# +(.*?) +\"(.*?)\" +(.*?) +((?:\\:|\\d)+).*");
 
         if(users.size() > 0) {
-            QList<QStandardItem *> tableElementsTemp;
+            QList<QList<QStandardItem*>> tableElementsTemp;
             std::vector<std::string> users_s = split(users);
             for(int i = 0; i < users_s.size(); i++) {
                 const std::string line = users_s[i];
@@ -166,35 +169,40 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                             steamUsersCache.insert(steamid64, user);
                         }
                         tm creation_tm = *localtime(&user.created);
-                        QStandardItem* userbase = new QStandardItem(
-                                    QString::fromStdString(user.tfname) + " | " +
-                                    QString::fromStdString(playtime) + " | Steam r.y: " +
-                                    QString::number(creation_tm.tm_year + 1900) + " | " +
-                                    QString::fromStdString(user.country) + " | h.p:" +
-                                    QString::number(user.playhours) + " | s.l:" +
-                                    QString::number(user.steamLevel));
+                        QList<QStandardItem*> row {
+                            new QStandardItem(QString::fromStdString(user.tfname)),
+                            new QStandardItem(QString::fromStdString(playtime)),
+                            new QStandardItem(QString::number(creation_tm.tm_year + 1900)),
+                            new QStandardItem(QString::fromStdString(user.country)),
+                            new QStandardItem(QString::number(user.playhours)),
+                            new QStandardItem(QString::number(user.steamLevel))};
                         bool suspicious = false;
                         if(user.name != user.tfname) {
                             suspicious = true;
-                            userbase->appendRow(new QStandardItem("Nick mismatch: steam " + QString::fromStdString(user.name) + ", tf " + QString::fromStdString(user.tfname)));
+                            row[0]->appendRow(new QStandardItem("Nick mismatch:"));
+                            row[1]->appendRow(new QStandardItem("steam \"" + QString::fromStdString(user.name) + "\","));
+                            row[2]->appendRow(new QStandardItem("tf \"" + QString::fromStdString(user.tfname) + "\""));
                         }
                         if(user.configured != 1) {
                             suspicious = true;
-                            userbase->appendRow(new QStandardItem("Profile is not configured"));
+                            row[0]->appendRow(new QStandardItem("Profile is"));
+                            row[1]->appendRow(new QStandardItem("not configured"));
                         }
                         if(user.visibility != 5 && user.visibility != 4 && user.visibility != 3) {
                             suspicious = true;
-                            userbase->appendRow(new QStandardItem("Profile is not public(" +
+                            row[0]->appendRow(new QStandardItem("Profile is"));
+                            row[1]->appendRow(new QStandardItem("not public(" +
                                                                  ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")"));
                         }
-                        tableElementsTemp.append(userbase);
+                        tableElementsTemp.append(row);
                     } else {
                         printf("ERROR: invalid steamid %s", steamid64.c_str());
                     }
                 }
             }
             updateTime();
-            tableElements->clear();
+            if(tableElements->rowCount() > 0)
+                tableElements->removeRows(0, tableElements->rowCount());
             foreach(auto row, tableElementsTemp) {
                 tableElements->appendRow(row);
             }
@@ -300,7 +308,6 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lineEdit->setText(rconpass);
     ui->lineEdit_2->setText(apiKey);
     ui->label_7->setText(logfile);
-    tableModel.clear();
     ui->treeView->setModel(&tableModel);
     updateTable();
     connect(&utw, &UpdaterThreadWorker::updateTable, this, &MainWindow::on_table_update);
@@ -340,6 +347,8 @@ void MainWindow::on_table_update() {
 
 void MainWindow::updateTable() {
     //ui->treeView->setModel(&tableModel);
+    for(int i = 0; i < tableModel.columnCount(); i++)
+            ui->treeView->resizeColumnToContents(i);
     ui->treeView->expandAll();
 }
 
