@@ -71,35 +71,31 @@ steamUser UpdaterThreadWorker::getUserData(std::string steamid64, std::string na
         ret.steamLevel = -1;
         ret.vacs = 0;
 
-        res = httpCli.Get(("/IPlayerService/GetOwnedGames/v1/?key=" + apiKey + "&include_played_free_games=tru&appids_filter[0]=440&steamid=" + QString::fromStdString(steamid64)).toStdString().c_str());
-        if(res->status != 200) {
-            goto fin;
-        }
-        responseJson = json::parse(res->body)["response"];
-        if(responseJson.contains("games")) {
-            for(int i = 0; i < responseJson["games"].size(); i++) {
-                if(responseJson["games"][i]["appid"] == 440) {
-                    ret.playhours = ((int)responseJson["games"][i]["playtime_forever"]) / 60;
+        res = httpCli.Get(("/IPlayerService/GetOwnedGames/v1/?key=" + apiKey + "&include_played_free_games=true&appids_filter[0]=440&steamid=" + QString::fromStdString(steamid64)).toStdString().c_str());
+        if(res->status == 200) {
+            responseJson = json::parse(res->body)["response"];
+            if(responseJson.contains("games")) {
+                for(int i = 0; i < responseJson["games"].size(); i++) {
+                    if(responseJson["games"][i]["appid"] == 440) {
+                        ret.playhours = ((int)responseJson["games"][i]["playtime_forever"]) / 60;
+                    }
                 }
             }
         }
         res = httpCli.Get(("/IPlayerService/GetSteamLevel/v1/?key=" + apiKey + "&steamid=" + QString::fromStdString(steamid64)).toStdString().c_str());
-        if(res->status != 200) {
-            goto fin;
-        }
-        responseJson = json::parse(res->body)["response"];
-        if(responseJson.contains("player_level")) {
-            ret.steamLevel = responseJson["player_level"];
+        if(res->status == 200) {
+            responseJson = json::parse(res->body)["response"];
+            if(responseJson.contains("player_level")) {
+                ret.steamLevel = responseJson["player_level"];
+            }
         }
         res = httpCli.Get(("/ISteamUser/GetPlayerBans/v1/?key=" + apiKey + "&steamids=" + QString::fromStdString(steamid64)).toStdString().c_str());
         if(res->status != 200) {
-            goto fin;
+            responseJson = json::parse(res->body);
+            if(!responseJson["players"].empty()) {
+                ret.vacs = responseJson["players"][0]["NumberOfVACBans"];
+            }
         }
-        responseJson = json::parse(res->body);
-        if(!responseJson["players"].empty()) {
-            ret.vacs = responseJson["players"][0]["NumberOfVACBans"];
-        }
-fin:
         return ret;
     }
     printf("ERROR: Key is incorrect");
@@ -230,9 +226,9 @@ bool UpdaterThreadWorker::processStatusOutput(const std::string status) {
                                 new QStandardItem("public(" +
                                 ((user.visibility == 1) ? QString("private") : QString("for friends")) + ")")
                             };
-                            row[0]->setChild(1, 0, subrow[0]);
-                            row[0]->setChild(1, 1, subrow[1]);
-                            row[0]->setChild(1, 2, subrow[2]);
+                            row[0]->setChild(2, 0, subrow[0]);
+                            row[0]->setChild(2, 1, subrow[1]);
+                            row[0]->setChild(2, 2, subrow[2]);
                         }
                         tableElementsTemp.append(row);
                     } else {
